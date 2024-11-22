@@ -1,0 +1,11 @@
+What were the actions of user01 on 2024-10-17
+At 2024-10-17, user_001 performed the following actions: - Ran an EC2 instance at 01:00:00Z - Deleted an object from S3 at 03:00:00Z - Started an EC2 instance at 02:00:00Z
+
+what action did user02 take on hour 2 of 2024-10-17
+During hour 2 (2:00 - 3:00) on 2024-10-17, user_002 performed the following action: - Retrieved an object from S3 at 2:10:00Z
+
+which object did user02 interact on hour 2 of 2024-10-17
+During hour 2 (2:00 - 3:00) on 2024-10-17, user_002 retrieved the object "file2.txt" from the S3 bucket "my-bucket".
+
+which users deleted objects from s3 on 2024-10-17
+Based on the logs, the user who deleted an object from S3 on 2024-10-17 was user_001. They deleted the object "file.txt" from the "my-bucket" S3 bucket at 03:00:00Z.

@@ -1,0 +1,104 @@
+openapi: 3.0.0
+info:
+  title: Logs Query API
+  version: 1.0.0
+  description: API for querying logs from AWS Athena based on year, month, day, and hour.
+paths:
+  /query-logs:
+    post:
+      summary: Query logs for a specific year, month, day, and hour
+      description: This endpoint triggers a query in Athena for logs based on the provided year, month, day, and hour. The result will be a list of logs for that time period.
+      operationId: queryLogs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                year:
+                  type: string
+                  description: The year of the logs to query (e.g., "2024").
+                  example: "2024"
+                month:
+                  type: string
+                  description: The month of the logs to query (e.g., "10").
+                  example: "10"
+                day:
+                  type: string
+                  description: The day of the logs to query (e.g., "17").
+                  example: "17"
+                hour:
+                  type: string
+                  description: The hour of the logs to query (e.g., "01").
+                  example: "01"
+              required:
+                - year
+                - month
+                - day
+                - hour
+      responses:
+        "200":
+          description: Logs retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: object
+                    properties:
+                      actionGroup:
+                        type: string
+                        example: "Claims"
+                      apiPath:
+                        type: string
+                        example: "/open-items/{claimId}/detail"
+                      httpMethod:
+                        type: string
+                        example: "GET"
+                      httpStatusCode:
+                        type: integer
+                        example: 200
+                      responseBody:
+                        type: object
+                        properties:
+                          application/json:
+                            type: object
+                            properties:
+                              body:
+                                type: string
+                                description: The stringified JSON response body, including logs.
+                                example: "{\"logs\": [[{\"VarCharValue\": \"{s=user_001}\"}, {\"VarCharValue\": \"{s=2024-10-17T01:00:00Z}\"}, {\"VarCharValue\": \"{s=ec2:RunInstances}\"}, {\"VarCharValue\": \"{s=arn:aws:ec2:us-east-1:instance/i-1234567890}\"}, {\"VarCharValue\": \"{s={\\\"instance_type\\\": \\\"t2.micro\\\", \\\"region\\\": \\\"us-east-1\\\"}}\"}, {\"VarCharValue\": \"2024\"}, {\"VarCharValue\": \"10\"}, {\"VarCharValue\": \"17\"}, {\"VarCharValue\": \"01\"}]]}"
+        "500":
+          description: Athena query failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: object
+                    properties:
+                      actionGroup:
+                        type: string
+                        example: "Claims"
+                      apiPath:
+                        type: string
+                        example: "/open-items/{claimId}/detail"
+                      httpMethod:
+                        type: string
+                        example: "GET"
+                      httpStatusCode:
+                        type: integer
+                        example: 500
+                      responseBody:
+                        type: object
+                        properties:
+                          application/json:
+                            type: object
+                            properties:
+                              body:
+                                type: string
+                                description: The error message explaining why the Athena query failed.
+                                example: "{\"error\": \"Athena query failed with reason: Query limit exceeded.\"}"

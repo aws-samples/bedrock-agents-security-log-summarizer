@@ -1,0 +1,113 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Bedrock agent for the security log summarizer.
+
+Parameters:
+  LambdaFunctionArn:
+    Type: String
+    Description: ARN of the Lambda function from the Core Resources Stack.
+
+Resources:
+ 
+  # IAM Role for Bedrock Agent
+  BedrockAgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BedrockAgentPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                  - bedrock:InvokeModel
+                Resource:
+                  - !Ref LambdaFunctionArn
+                  - "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-haiku-20240307-v1:0"
+
+  # Bedrock Agent
+  BedrockAgent:
+    Type: AWS::Bedrock::Agent
+    Properties:
+      AgentName: "demo_securityLogSummarizerAgent"
+      AgentResourceRoleArn: !GetAtt BedrockAgentRole.Arn
+      AutoPrepare: True
+      FoundationModel: "anthropic.claude-3-haiku-20240307-v1:0"
+      Instruction: "You are a security log summarizer. Your task is to summarize events based on logs retrieved from a query for a specific time range. You will need to query the logs for a given year, month, day, and hour using the provided API, and then summarize the actions taken by different users during that hour. Querying the Logs: Use the /query-logs endpoint to request logs for the specified year, month, day, and hour. The query will return a list of actions taken by users within that time range. If the request is for any year, month, day or hour, substitute this parameter by 'any'. Provide this result to the user Summarizing the Logs: Once you have the list of logs, summarize the events in the following format: At [time], there were X actions performed by Y users. [User 1] performed [action 1], [action 2], etc. [User 2] performed [other actions]. Please group actions by user and make the summary clear and concise. Example Summary: \"At 2024-10-17T10:00:00Z, there were 4 actions performed by 2 users. User user_001 uploaded a file to S3 and created an EC2 instance. User user_002 terminated an EC2 instance and retrieved CloudWatch logs.\""
+      ActionGroups:
+          - ActionGroupName: "QueryAthenaSecurityLogs"
+            Description: "Calls the Lambda function that will trigger Athena"
+            ActionGroupExecutor:
+              Lambda: !Ref LambdaFunctionArn
+            ApiSchema:
+              Payload: |
+                {
+                  "openapi": "3.0.0",
+                  "info": {
+                    "title": "Logs Query API",
+                    "version": "1.0.0",
+                    "description": "API for querying logs from AWS Athena based on year, month, day, and hour."
+                  },
+                  "paths": {
+                    "/query-logs": {
+                      "post": {
+                        "summary": "Query logs for a specific year, month, day, and hour",
+                        "description": "Triggers a query in Athena for logs based on the provided year, month, day, and hour.",
+                        "operationId": "queryLogs",
+                        "requestBody": {
+                          "required": true,
+                          "content": {
+                            "application/json": {
+                              "schema": {
+                                "type": "object",
+                                "properties": {
+                                  "year": {
+                                    "type": "string",
+                                    "description": "The year of the logs to query.",
+                                    "example": "2024"
+                                  },
+                                  "month": {
+                                    "type": "string",
+                                    "description": "The month of the logs to query.",
+                                    "example": "10"
+                                  },
+                                  "day": {
+                                    "type": "string",
+                                    "description": "The day of the logs to query.",
+                                    "example": "17"
+                                  },
+                                  "hour": {
+                                    "type": "string",
+                                    "description": "The hour of the logs to query.",
+                                    "example": "01"
+                                  }
+                                },
+                                "required": ["year", "month", "day", "hour"]
+                              }
+                            }
+                          }
+                        },
+                        "responses": {
+                          "200": {
+                            "description": "Logs retrieved successfully."
+                          },
+                          "500": {
+                            "description": "Athena query failed."
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+
+Outputs:
+  BedrockAgentArn:
+    Description: ARN of the Bedrock Agent
+    Value: !Ref BedrockAgent

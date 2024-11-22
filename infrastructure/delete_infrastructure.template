@@ -1,0 +1,39 @@
+#!/bin/bash
+set -x
+
+LAMBDA_BUCKET=YOUR-LAMBDA-CODE-BUCKET
+STACK_NAME1=YOUR-STACK-NAME1
+STACK_NAME2=YOUR-STACK-NAME2
+
+ATHENA_BUCKET=$(aws cloudformation describe-stacks \
+    --stack-name $STACK_NAME1 \
+    --query "Stacks[0].Outputs[?OutputKey=='AthenaOutputBucketName'].OutputValue" \
+    --output text)
+
+LOGS_BUCKET=$(aws cloudformation describe-stacks \
+    --stack-name $STACK_NAME1 \
+    --query "Stacks[0].Outputs[?OutputKey=='LogsBucketName'].OutputValue" \
+    --output text)
+
+aws s3 rm s3://$LAMBDA_BUCKET --recursive
+aws s3 rm s3://$ATHENA_BUCKET --recursive
+aws s3 rm s3://$LOGS_BUCKET --recursive
+
+WORKGROUP_NAME="SecurityDemoAthenaWorkgroup"
+
+# Stop all active queries
+for query_id in $(aws athena list-query-executions --work-group $WORKGROUP_NAME --query "QueryExecutionIds[]" --output text); do
+    aws athena stop-query-execution --query-execution-id $query_id
+done
+
+# Delete all named queries
+for query_id in $(aws athena list-named-queries --work-group $WORKGROUP_NAME --query "NamedQueryIds[]" --output text); do
+    aws athena delete-named-query --named-query-id $query_id
+done
+
+echo "Deleting CloudFormation stack: $STACK_NAME2"
+aws cloudformation delete-stack \
+    --stack-name $STACK_NAME2
+echo "Deleting CloudFormation stack: $STACK_NAME1"
+aws cloudformation delete-stack \
+    --stack-name $STACK_NAME1

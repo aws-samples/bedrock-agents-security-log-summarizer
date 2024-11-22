@@ -1,0 +1,45 @@
+{
+  "messageVersion": "1.0",
+  "parameters": [],
+  "sessionId": "047064783195446",
+  "agent": {
+    "name": "Test_securityLogsSummary",
+    "version": "DRAFT",
+    "id": "RELJEBK9J1",
+    "alias": "TSTALIASID"
+  },
+  "sessionAttributes": {},
+  "promptSessionAttributes": {},
+  "inputText": "what actions were taken by users on 2024 10 17 on hour 03",
+  "apiPath": "/query-logs",
+  "requestBody": {
+    "content": {
+      "application/json": {
+        "properties": [
+          {
+            "name": "year",
+            "type": "string",
+            "value": "2024"
+          },
+          {
+            "name": "month",
+            "type": "string",
+            "value": "10"
+          },
+          {
+            "name": "hour",
+            "type": "string",
+            "value": "03"
+          },
+          {
+            "name": "day",
+            "type": "string",
+            "value": "17"
+          }
+        ]
+      }
+    }
+  },
+  "actionGroup": "accesslogs",
+  "httpMethod": "POST"
+}

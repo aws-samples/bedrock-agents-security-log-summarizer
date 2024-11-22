@@ -1,0 +1,2 @@
+{"user_id": {"S": "user_001"}, "event_time": {"S": "2024-10-17T02:00:00Z"}, "action": {"S": "ec2:StartInstances"}, "resource_name": {"S": "arn:aws:ec2:us-east-1:instance/i-1234567890"}, "extraDetails": {"S": "{\"instance_type\": \"t2.micro\", \"region\": \"us-east-1\"}"}}
+{"user_id": {"S": "user_002"}, "event_time": {"S": "2024-10-17T02:10:00Z"}, "action": {"S": "s3:GetObject"}, "resource_name": {"S": "arn:aws:s3:::my-bucket/file2.txt"}, "extraDetails": {"S": "{\"bucket\": \"my-bucket\", \"region\": \"us-east-1\"}"}} 
