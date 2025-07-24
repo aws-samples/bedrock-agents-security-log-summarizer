@@ -1,113 +1,177 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Bedrock agent for the security log summarizer.
+Description: 'Stack 2: Bedrock Agent with Action Groups for Security Log Summarizer'
 
 Parameters:
-  LambdaFunctionArn:
+  Stack1Name:
     Type: String
-    Description: ARN of the Lambda function from the Core Resources Stack.
+    Description: Name of Stack 1 that contains the Lambda function and other infrastructure
+    Default: demo-security-stack-lambda-glue
 
 Resources:
- 
-  # IAM Role for Bedrock Agent
+  # Bedrock Agent Service Role
   BedrockAgentRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
-        Version: "2012-10-17"
+        Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal:
               Service: bedrock.amazonaws.com
             Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonBedrockFullAccess
       Policies:
-        - PolicyName: BedrockAgentPolicy
+        - PolicyName: LambdaInvokePolicy
           PolicyDocument:
-            Version: "2012-10-17"
+            Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
                   - lambda:InvokeFunction
-                  - bedrock:InvokeModel
-                Resource:
-                  - !Ref LambdaFunctionArn
-                  - "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-haiku-20240307-v1:0"
+                Resource: 
+                  Fn::ImportValue: !Sub "${Stack1Name}-LambdaFunctionArn"
 
-  # Bedrock Agent
+  # Bedrock Agent with Action Group
   BedrockAgent:
     Type: AWS::Bedrock::Agent
     Properties:
-      AgentName: "demo_securityLogSummarizerAgent"
-      AgentResourceRoleArn: !GetAtt BedrockAgentRole.Arn
-      AutoPrepare: True
+      AgentName: !Sub "demo-securityLogSummarizerAgent-${AWS::StackName}"
+      Description: "Agent for summarizing security logs"
       FoundationModel: "anthropic.claude-3-haiku-20240307-v1:0"
-      Instruction: "You are a security log summarizer. Your task is to summarize events based on logs retrieved from a query for a specific time range. You will need to query the logs for a given year, month, day, and hour using the provided API, and then summarize the actions taken by different users during that hour. Querying the Logs: Use the /query-logs endpoint to request logs for the specified year, month, day, and hour. The query will return a list of actions taken by users within that time range. If the request is for any year, month, day or hour, substitute this parameter by 'any'. Provide this result to the user Summarizing the Logs: Once you have the list of logs, summarize the events in the following format: At [time], there were X actions performed by Y users. [User 1] performed [action 1], [action 2], etc. [User 2] performed [other actions]. Please group actions by user and make the summary clear and concise. Example Summary: \"At 2024-10-17T10:00:00Z, there were 4 actions performed by 2 users. User user_001 uploaded a file to S3 and created an EC2 instance. User user_002 terminated an EC2 instance and retrieved CloudWatch logs.\""
+      Instruction: |
+        You are a security log summarizer. Your task is to summarize events based on logs retrieved from a query for a specific time range. You will need to query the logs for a given year, month, day, and hour using the provided API, and then summarize the actions taken by different users during that hour.
+        
+        Querying the Logs: Use the /query-logs endpoint to request logs for the specified year, month, day, and hour. The query will return a list of actions taken by users within that time range. If the request is for any year, month, day or hour, substitute this parameter by 'any'. Provide this result to the user
+        
+        Summarizing the Logs: Once you have the list of logs, summarize the events in the following format: At [time], there were X actions performed by Y users. [User 1] performed [action 1], [action 2], etc. [User 2] performed [other actions]. Please group actions by user and make the summary clear and concise.
+        
+        Example Summary: "At 2024-10-17T10:00:00Z, there were 4 actions performed by 2 users. User user_001 uploaded a file to S3 and created an EC2 instance. User user_002 terminated an EC2 instance and retrieved CloudWatch logs."
+      AgentResourceRoleArn: !GetAtt BedrockAgentRole.Arn
+      IdleSessionTTLInSeconds: 1800
       ActionGroups:
-          - ActionGroupName: "QueryAthenaSecurityLogs"
-            Description: "Calls the Lambda function that will trigger Athena"
-            ActionGroupExecutor:
-              Lambda: !Ref LambdaFunctionArn
-            ApiSchema:
-              Payload: |
-                {
-                  "openapi": "3.0.0",
-                  "info": {
-                    "title": "Logs Query API",
-                    "version": "1.0.0",
-                    "description": "API for querying logs from AWS Athena based on year, month, day, and hour."
-                  },
-                  "paths": {
-                    "/query-logs": {
-                      "post": {
-                        "summary": "Query logs for a specific year, month, day, and hour",
-                        "description": "Triggers a query in Athena for logs based on the provided year, month, day, and hour.",
-                        "operationId": "queryLogs",
-                        "requestBody": {
-                          "required": true,
-                          "content": {
-                            "application/json": {
-                              "schema": {
-                                "type": "object",
-                                "properties": {
-                                  "year": {
-                                    "type": "string",
-                                    "description": "The year of the logs to query.",
-                                    "example": "2024"
-                                  },
-                                  "month": {
-                                    "type": "string",
-                                    "description": "The month of the logs to query.",
-                                    "example": "10"
-                                  },
-                                  "day": {
-                                    "type": "string",
-                                    "description": "The day of the logs to query.",
-                                    "example": "17"
-                                  },
-                                  "hour": {
-                                    "type": "string",
-                                    "description": "The hour of the logs to query.",
-                                    "example": "01"
-                                  }
-                                },
-                                "required": ["year", "month", "day", "hour"]
-                              }
-                            }
-                          }
-                        },
-                        "responses": {
-                          "200": {
-                            "description": "Logs retrieved successfully."
-                          },
-                          "500": {
-                            "description": "Athena query failed."
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
+        - ActionGroupName: QueryAthenaSecurityLogs
+          Description: "Action group for querying security logs from Athena"
+          ActionGroupState: ENABLED
+          ActionGroupExecutor:
+            Lambda: 
+              Fn::ImportValue: !Sub "${Stack1Name}-LambdaFunctionArn"
+          ApiSchema:
+            Payload: |
+              openapi: 3.0.0
+              info:
+                title: Logs Query API
+                version: 1.0.0
+                description: API for querying logs from AWS Athena based on year, month, day, and hour.
+              paths:
+                /query-logs:
+                  post:
+                    summary: Query logs for a specific year, month, day, and hour
+                    description: This endpoint triggers a query in Athena for logs based on the provided year, month, day, and hour. The result will be a list of logs for that time period.
+                    operationId: queryLogs
+                    requestBody:
+                      required: true
+                      content:
+                        application/json:
+                          schema:
+                            type: object
+                            properties:
+                              year:
+                                type: string
+                                description: The year of the logs to query (e.g., "2024").
+                                example: "2024"
+                              month:
+                                type: string
+                                description: The month of the logs to query (e.g., "10").
+                                example: "10"
+                              day:
+                                type: string
+                                description: The day of the logs to query (e.g., "17").
+                                example: "17"
+                              hour:
+                                type: string
+                                description: The hour of the logs to query (e.g., "01").
+                                example: "01"
+                            required:
+                              - year
+                              - month
+                              - day
+                              - hour
+                    responses:
+                      "200":
+                        description: Logs retrieved successfully
+                        content:
+                          application/json:
+                            schema:
+                              type: object
+                              properties:
+                                response:
+                                  type: object
+                                  properties:
+                                    actionGroup:
+                                      type: string
+                                      example: "Claims"
+                                    apiPath:
+                                      type: string
+                                      example: "/open-items/{claimId}/detail"
+                                    httpMethod:
+                                      type: string
+                                      example: "GET"
+                                    httpStatusCode:
+                                      type: integer
+                                      example: 200
+                                    responseBody:
+                                      type: object
+                                      properties:
+                                        application/json:
+                                          type: object
+                                          properties:
+                                            body:
+                                              type: string
+                                              description: The stringified JSON response body, including logs.
+                                              example: "{\"logs\": [[{\"VarCharValue\": \"{s=user_001}\"}, {\"VarCharValue\": \"{s=2024-10-17T01:00:00Z}\"}, {\"VarCharValue\": \"{s=ec2:RunInstances}\"}, {\"VarCharValue\": \"{s=arn:aws:ec2:us-east-1:instance/i-1234567890}\"}, {\"VarCharValue\": \"{s={\\\"instance_type\\\": \\\"t2.micro\\\", \\\"region\\\": \\\"us-east-1\\\"}}\"}, {\"VarCharValue\": \"2024\"}, {\"VarCharValue\": \"10\"}, {\"VarCharValue\": \"17\"}, {\"VarCharValue\": \"01\"}]]}"
+                      "500":
+                        description: Athena query failed
+                        content:
+                          application/json:
+                            schema:
+                              type: object
+                              properties:
+                                response:
+                                  type: object
+                                  properties:
+                                    actionGroup:
+                                      type: string
+                                      example: "Claims"
+                                    apiPath:
+                                      type: string
+                                      example: "/open-items/{claimId}/detail"
+                                    httpMethod:
+                                      type: string
+                                      example: "GET"
+                                    httpStatusCode:
+                                      type: integer
+                                      example: 500
+                                    responseBody:
+                                      type: object
+                                      properties:
+                                        application/json:
+                                          type: object
+                                          properties:
+                                            body:
+                                              type: string
+                                              description: The error message explaining why the Athena query failed.
+                                              example: "{\"error\": \"Athena query failed with reason: Query limit exceeded.\"}"
 
 Outputs:
-  BedrockAgentArn:
-    Description: ARN of the Bedrock Agent
+  BedrockAgentId:
+    Description: "ID of the Bedrock Agent"
     Value: !Ref BedrockAgent
+    Export:
+      Name: !Sub "${AWS::StackName}-BedrockAgent"
+
+  BedrockAgentName:
+    Description: "Name of the Bedrock Agent"
+    Value: !Sub "demo-securityLogSummarizerAgent-${AWS::StackName}"
+    Export:
+      Name: !Sub "${AWS::StackName}-BedrockAgentName"

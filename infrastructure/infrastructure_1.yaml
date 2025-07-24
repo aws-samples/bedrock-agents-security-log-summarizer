@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: CloudFormation template to deploy S3, Glue, Lambda, and Bedrock Agent.
+Description: 'Stack 1: S3, Lambda, Glue, and Athena infrastructure for Bedrock Agents Security Log Summarizer'
 
 Resources:
   # S3 Bucket for Glue Crawled Logs
@@ -24,18 +24,38 @@ Resources:
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
 
+  # Bucket Policy for Athena Output Bucket
+  AthenaOutputBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AthenaOutputBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowAthenaAccess
+            Effect: Allow
+            Principal:
+              Service: athena.amazonaws.com
+            Action:
+              - s3:GetBucketLocation
+              - s3:GetObject
+              - s3:ListBucket
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource:
+              - !GetAtt AthenaOutputBucket.Arn
+              - !Sub "${AthenaOutputBucket.Arn}/*"
+
   # Athena Workgroup
   AthenaWorkgroup:
     Type: AWS::Athena::WorkGroup
     Properties:
-      Name: SecurityDemoAthenaWorkgroup
-      Description: "Workgroup for Athena queries with custom settings"
+      Name: !Sub "SecurityDemo-${AWS::StackName}-AthenaWorkgroup"
+      Description: "Workgroup for security log queries"
       State: ENABLED
       WorkGroupConfiguration:
-        EnforceWorkGroupConfiguration: true
         ResultConfiguration:
-          OutputLocation: !Sub  s3://${AthenaOutputBucket}/
-
+          OutputLocation: !Sub "s3://${AthenaOutputBucket}/"
 
   # Glue Database
   GlueDatabase:
@@ -43,23 +63,10 @@ Resources:
     Properties:
       CatalogId: !Ref AWS::AccountId
       DatabaseInput:
-        Name: "demo-securitylogsummarizer"
+        Name: !Sub "demo-securitylogsummarizer-${AWS::StackName}"
+        Description: "Database for security logs"
 
-  # Glue Crawler
-  GlueCrawler:
-    Type: AWS::Glue::Crawler
-    Properties:
-      Name: "SecurityLogsCrawler"
-      Role: !GetAtt GlueCrawlerRole.Arn
-      DatabaseName: !Ref GlueDatabase
-      Targets:
-        S3Targets:
-          - Path: !Sub "s3://${LogsBucket}/logs/"
-      SchemaChangePolicy:
-        UpdateBehavior: UPDATE_IN_DATABASE
-        DeleteBehavior: DEPRECATE_IN_DATABASE
-
-  # IAM Role for Glue Crawler
+  # Glue Crawler IAM Role
   GlueCrawlerRole:
     Type: AWS::IAM::Role
     Properties:
@@ -70,161 +77,149 @@ Resources:
             Principal:
               Service: glue.amazonaws.com
             Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
       Policies:
-        - PolicyName: GlueCrawlerPolicy
+        - PolicyName: S3AccessPolicy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
-                  - glue:*
-                Resource: "*"
-              - Effect: Allow
-                Action:
                   - s3:GetObject
                   - s3:PutObject
                   - s3:ListBucket
-                  - s3:GetBucketLocation
-                  - s3:GetBucketAcl
-                  - s3:ListAllMyBuckets
                 Resource:
-                  - !Sub "arn:aws:s3:::${LogsBucket}"
                   - !Sub "arn:aws:s3:::${LogsBucket}/*"
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - ec2:DescribeVpcEndpoints
-                  - ec2:DescribeRouteTables
-                  - ec2:CreateNetworkInterface
-                  - ec2:DeleteNetworkInterface
-                  - ec2:DescribeNetworkInterfaces
-                  - ec2:DescribeSecurityGroups
-                  - ec2:DescribeSubnets
-                  - ec2:DescribeVpcAttribute
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - iam:ListRolePolicies
-                  - iam:GetRole
-                  - iam:GetRolePolicy
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - cloudwatch:PutMetricData
-                Resource: "*"
+                  - !GetAtt LogsBucket.Arn
 
+  # Glue Crawler
+  GlueCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: !Sub "SecurityLogsCrawler-${AWS::StackName}"
+      Role: !GetAtt GlueCrawlerRole.Arn
+      DatabaseName: !Ref GlueDatabase
+      Targets:
+        S3Targets:
+          - Path: !Sub "s3://${LogsBucket}/"
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: LOG
 
-  # IAM Role for Lambda Function
+  # Lambda Execution Role
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
-        Version: "2012-10-17"
+        Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: LambdaPolicy
+        - PolicyName: AthenaAccessPolicy
           PolicyDocument:
-            Version: "2012-10-17"
+            Version: '2012-10-17'
             Statement:
-              # Permissions for Athena Queries
               - Effect: Allow
                 Action:
                   - athena:StartQueryExecution
                   - athena:GetQueryExecution
                   - athena:GetQueryResults
-                Resource: 
-                  - !Sub "arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/*"
-              # Permissions for Glue Database Access (via Athena)
-              - Effect: Allow
-                Action:
-                  - glue:GetDatabase
-                  - glue:GetTable
-                  - glue:GetPartitions
-                Resource: 
-                  - !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog"
-                  - !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/*"
-                  - !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/*"
-              # Permissions for S3 to store Athena query results
-              - Effect: Allow
-                Action:
-                  - s3:GetBucketLocation
-                Resource:
-                  - arn:aws:s3:::*
+                  - athena:StopQueryExecution
+                  - athena:GetWorkGroup
+                  - athena:ListQueryExecutions
+                  - athena:GetQueryResultsStream
+                Resource: "*"
               - Effect: Allow
                 Action:
                   - s3:GetObject
                   - s3:PutObject
                   - s3:ListBucket
+                  - s3:GetBucketLocation
+                  - s3:CreateBucket
+                  - s3:GetBucketVersioning
                 Resource:
-                  - !Sub "arn:aws:s3:::${AthenaOutputBucket}"  # Bucket for Athena results
                   - !Sub "arn:aws:s3:::${AthenaOutputBucket}/*"
-                  - !Sub "arn:aws:s3:::${LogsBucket}"  # Bucket for Athena results
+                  - !GetAtt AthenaOutputBucket.Arn
                   - !Sub "arn:aws:s3:::${LogsBucket}/*"
-              # Permissions for CloudWatch Logs
+                  - !GetAtt LogsBucket.Arn
               - Effect: Allow
                 Action:
-                  - logs:CreateLogGroup
-                Resource: 
-                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: 
-                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*:*"
+                  - glue:GetDatabase
+                  - glue:GetTable
+                  - glue:GetPartitions
+                  - glue:GetTables
+                Resource: "*"
 
   # Lambda Function
   LambdaFunction:
     Type: AWS::Lambda::Function
-    DependsOn:
-      - LogsBucket
-      - AthenaOutputBucket
-      - GlueDatabase
     Properties:
-      FunctionName: "demo_securityLogSummarizer"
-      Handler: "lambda_function.lambda_handler"
-      Runtime: "python3.12"
+      # No explicit FunctionName - let CloudFormation generate unique name
+      Runtime: python3.11
+      Handler: lambda_function.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Code:
-        S3Bucket: "YOUR-LAMBDA-CODE-BUCKET"  # YOUR-LAMBDA-CODE-BUCKETReplace with your Lambda code bucket
-        S3Key: "lambda_function.zip"
-      Timeout: 10
-      MemorySize: 128
+        S3Bucket: YOUR-LAMBDA-CODE-BUCKET
+        S3Key: lambda_function.zip
+      Timeout: 30
       Environment:
         Variables:
-          DATABASE: !Ref GlueDatabase
-          TABLE: "logs"
+          GLUE_DATABASE: !Ref GlueDatabase
+          TABLE: !Sub 
+            - "glue_logs_${StackNameUnderscore}"
+            - StackNameUnderscore: !Join ['_', !Split ['-', !Ref 'AWS::StackName']]
           OUTPUT_LOCATION: !Sub "s3://${AthenaOutputBucket}/"
-          ATHENA_WORKGROUP: !Sub "${AthenaWorkgroup}"
+          ATHENA_WORKGROUP: !Ref AthenaWorkgroup
           BEDROCK_AGENT_ACTION_GROUP: "QueryAthenaSecurityLogs"
 
-  # Lambda Permission for Bedrock Agent
-  LambdaPermission:
+  # Lambda Permission for Bedrock (to be used by Stack 2)
+  LambdaInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !GetAtt LambdaFunction.Arn
-      Action: "lambda:InvokeFunction"
-      Principal: "bedrock.amazonaws.com"
-      SourceArn: !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:agent/*"
+      FunctionName: !Ref LambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: bedrock.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
 
 Outputs:
-  LambdaFunctionArn:
-    Description: ARN of the Lambda Function
-    Value: !GetAtt LambdaFunction.Arn
+  LogsBucketName:
+    Description: "Name of the S3 bucket for logs"
+    Value: !Ref LogsBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-LogsBucket"
 
   AthenaOutputBucketName:
-    Description: Name of the Athena output bucket.
+    Description: "Name of the S3 bucket for Athena outputs"
     Value: !Ref AthenaOutputBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-AthenaOutputBucket"
 
-  LogsBucketName:
-    Description: Name of the Athena output bucket.
-    Value: !Ref LogsBucket
+  LambdaFunctionName:
+    Description: "Name of the Lambda function"
+    Value: !Ref LambdaFunction
+    Export:
+      Name: !Sub "${AWS::StackName}-LambdaFunction"
+
+  LambdaFunctionArn:
+    Description: "ARN of the Lambda function"
+    Value: !GetAtt LambdaFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-LambdaFunctionArn"
+
+  GlueDatabaseName:
+    Description: "Name of the Glue Database"
+    Value: !Ref GlueDatabase
+    Export:
+      Name: !Sub "${AWS::StackName}-GlueDatabase"
+
+  AthenaWorkgroupName:
+    Description: "Name of the Athena Workgroup"
+    Value: !Ref AthenaWorkgroup
+    Export:
+      Name: !Sub "${AWS::StackName}-AthenaWorkgroup"

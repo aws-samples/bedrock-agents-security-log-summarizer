@@ -24,29 +24,55 @@ cd infrastructure
 ./deploy_infrastructure.sh
 ```
 
+The deployment script will:
+- Create S3 buckets for logs and Athena query results
+- Deploy Lambda function with proper IAM permissions
+- Set up AWS Glue database and crawler
+- Configure Athena workgroup
+- Deploy Bedrock Agent with Action Groups
+- Upload sample data and start the Glue crawler
+
 ## Testing
 Go to AWS Console > Bedrock > Agents and paste one of the questions from the file _questions.txt_. You can validate the responses by checking the values in the _data_ folder.
+
+Example questions:
+- "What were the actions of user01 on 2024-10-17?"
+- "Show me all actions on October 17, 2024"
+- "What happened during hour 1 on 2024-10-17?"
 
 ## Next Steps
 In order to extend the functionality of this agent, you can edit the Lambda function in _infrastructure/lambda_function.py_ and update the deployment.
 
 ## Deleting
-The deployment script will also generate a _delete_infrastructure_updated.sh_. This can be used to delete the created resources once you are done.
+The deployment script will generate a _delete_infrastructure_updated.sh_ script with the actual stack names and bucket names. This can be used to delete the created resources once you are done.
 
 Run:
 ```
-chmod +x delete_infrastructure_updated.sh
 ./delete_infrastructure_updated.sh
 ```
-If you receive an error message, you might need to manually delete the Athena workgroup. In order to do that, go to the AWS Console > Athena > Administration > workgroups and delete "SecurityDemoAthenaWorkgroup". Then go to CloudFormation > Stacks and delete the related stack.
+
+### Manual Cleanup (if needed)
+If the automated cleanup script fails, you may need to manually:
+- Empty all S3 buckets (logs, Athena output, and Lambda code buckets)
+- Delete the Athena workgroup in AWS Console > Athena > Administration > Workgroups
+- Delete the CloudFormation stacks in order (Stack 2 first, then Stack 1)
 
 ### Note on Deleting
-The above deletion script should remove all resources in the case of a successful deployment.
+The deletion script should remove all resources in the case of a successful deployment. If your deployment failed, you may need to manually clean up partially created resources before the CloudFormation stacks can be deleted.
 
-If your deployment failed (as an example if you didn't enable the Bedrock model), the CloudFormation stack will fail to delete. In order to do that:
-- Delete all objects from the bedrock-agent-lambda and the glue-logs s3 bucket
-- Delete the Athena workgroup, if it exists.  In order to manually do that, go to the AWS Console > Athena > Administration > workgroups and delete "SecurityDemoAthenaWorkgroup".
-Once these steps are completed, you should be able to execute the CloudFormation stack delete.
+## Architecture Details
+
+### Two-Stack Approach
+The solution uses two CloudFormation stacks to avoid circular dependencies:
+- **Stack 1** (`infrastructure_1.yaml`): S3 buckets, Lambda function, Glue database/crawler, Athena workgroup
+- **Stack 2** (`infrastructure_2.yaml`): Bedrock Agent with Action Groups that reference the Lambda function from Stack 1
+
+### Key Components
+- **AWS Glue**: Automatically discovers and catalogs log schema
+- **Amazon Athena**: Executes SQL queries directly against S3 data
+- **AWS Lambda**: Processes Bedrock Agent requests and executes Athena queries
+- **Amazon Bedrock Agent**: Provides natural language interface powered by Claude 3 Haiku
+- **S3**: Stores security logs and Athena query results
 
 ## Security
 
@@ -55,4 +81,3 @@ See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more inform
 ## License
 
 This library is licensed under the MIT-0 License. See the LICENSE file.
-

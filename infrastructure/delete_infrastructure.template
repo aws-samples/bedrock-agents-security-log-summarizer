@@ -1,39 +1,94 @@
 #!/bin/bash
-set -x
+set -e
+
+echo "=== Bedrock Agents Security Log Summarizer Cleanup ==="
+echo "Starting cleanup at $(date)"
 
 LAMBDA_BUCKET=YOUR-LAMBDA-CODE-BUCKET
-STACK_NAME1=YOUR-STACK-NAME1
-STACK_NAME2=YOUR-STACK-NAME2
+STACK_NAME1=STACK_NAME1_PLACEHOLDER
+STACK_NAME2=STACK_NAME2_PLACEHOLDER
 
+echo "Cleaning up resources for stacks:"
+echo "  - Stack 1 (Infrastructure): $STACK_NAME1"
+echo "  - Stack 2 (Bedrock Agent): $STACK_NAME2"
+
+# Get bucket names from CloudFormation Stack 1 outputs
+echo "Getting bucket names from CloudFormation Stack 1..."
 ATHENA_BUCKET=$(aws cloudformation describe-stacks \
     --stack-name $STACK_NAME1 \
     --query "Stacks[0].Outputs[?OutputKey=='AthenaOutputBucketName'].OutputValue" \
-    --output text)
+    --output text \
+    --region us-east-1 2>/dev/null || echo "")
 
 LOGS_BUCKET=$(aws cloudformation describe-stacks \
     --stack-name $STACK_NAME1 \
     --query "Stacks[0].Outputs[?OutputKey=='LogsBucketName'].OutputValue" \
-    --output text)
+    --output text \
+    --region us-east-1 2>/dev/null || echo "")
 
-aws s3 rm s3://$LAMBDA_BUCKET --recursive
-aws s3 rm s3://$ATHENA_BUCKET --recursive
-aws s3 rm s3://$LOGS_BUCKET --recursive
+echo "Found buckets:"
+echo "  - Lambda code bucket: $LAMBDA_BUCKET"
+echo "  - Athena output bucket: $ATHENA_BUCKET"
+echo "  - Logs bucket: $LOGS_BUCKET"
 
-WORKGROUP_NAME="SecurityDemoAthenaWorkgroup"
+# Empty S3 buckets before stack deletion
+echo "Emptying S3 buckets..."
+if [ "$LAMBDA_BUCKET" != "" ] && [ "$LAMBDA_BUCKET" != "None" ]; then
+    echo "Emptying Lambda bucket: $LAMBDA_BUCKET"
+    aws s3 rm s3://$LAMBDA_BUCKET --recursive --region us-east-1 || echo "Lambda bucket already empty or doesn't exist"
+fi
 
-# Stop all active queries
-for query_id in $(aws athena list-query-executions --work-group $WORKGROUP_NAME --query "QueryExecutionIds[]" --output text); do
-    aws athena stop-query-execution --query-execution-id $query_id
-done
+if [ "$ATHENA_BUCKET" != "" ] && [ "$ATHENA_BUCKET" != "None" ]; then
+    echo "Emptying Athena bucket: $ATHENA_BUCKET"
+    aws s3 rm s3://$ATHENA_BUCKET --recursive --region us-east-1 || echo "Athena bucket already empty or doesn't exist"
+fi
 
-# Delete all named queries
-for query_id in $(aws athena list-named-queries --work-group $WORKGROUP_NAME --query "NamedQueryIds[]" --output text); do
-    aws athena delete-named-query --named-query-id $query_id
-done
+if [ "$LOGS_BUCKET" != "" ] && [ "$LOGS_BUCKET" != "None" ]; then
+    echo "Emptying Logs bucket: $LOGS_BUCKET"
+    aws s3 rm s3://$LOGS_BUCKET --recursive --region us-east-1 || echo "Logs bucket already empty or doesn't exist"
+fi
 
-echo "Deleting CloudFormation stack: $STACK_NAME2"
+# Get Athena workgroup name and clean up queries
+echo "Cleaning up Athena workgroup..."
+WORKGROUP_NAME=$(aws cloudformation describe-stack-resources \
+    --stack-name $STACK_NAME1 \
+    --query "StackResources[?LogicalResourceId=='AthenaWorkgroup'].PhysicalResourceId" \
+    --output text \
+    --region us-east-1 2>/dev/null || echo "")
+
+if [ "$WORKGROUP_NAME" != "" ] && [ "$WORKGROUP_NAME" != "None" ]; then
+    echo "Found workgroup: $WORKGROUP_NAME"
+    
+    # Stop all active queries
+    echo "Stopping active queries..."
+    for query_id in $(aws athena list-query-executions --work-group $WORKGROUP_NAME --query "QueryExecutionIds[]" --output text --region us-east-1 2>/dev/null || echo ""); do
+        if [ "$query_id" != "" ]; then
+            aws athena stop-query-execution --query-execution-id $query_id --region us-east-1 || echo "Query $query_id already stopped"
+        fi
+    done
+    
+    # Delete all named queries
+    echo "Deleting named queries..."
+    for query_id in $(aws athena list-named-queries --work-group $WORKGROUP_NAME --query "NamedQueryIds[]" --output text --region us-east-1 2>/dev/null || echo ""); do
+        if [ "$query_id" != "" ]; then
+            aws athena delete-named-query --named-query-id $query_id --region us-east-1 || echo "Named query $query_id already deleted"
+        fi
+    done
+fi
+
+# Delete CloudFormation stacks (Stack 2 first, then Stack 1)
+echo "Deleting CloudFormation Stack 2: $STACK_NAME2"
 aws cloudformation delete-stack \
-    --stack-name $STACK_NAME2
-echo "Deleting CloudFormation stack: $STACK_NAME1"
+    --stack-name $STACK_NAME2 \
+    --region us-east-1
+
+echo "Waiting for Stack 2 deletion to complete..."
+aws cloudformation wait stack-delete-complete --stack-name $STACK_NAME2 --region us-east-1
+
+echo "Deleting CloudFormation Stack 1: $STACK_NAME1"
 aws cloudformation delete-stack \
-    --stack-name $STACK_NAME1
+    --stack-name $STACK_NAME1 \
+    --region us-east-1
+
+echo "Stack deletions initiated. You can monitor progress in the AWS CloudFormation console."
+echo "Cleanup script completed at $(date)"
